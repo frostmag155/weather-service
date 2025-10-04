@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сервис прогноза погоды</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2d3436;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        
+        input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus {
+            border-color: #74b9ff;
+        }
+        
+        button {
+            padding: 15px 30px;
+            background: #00b894;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #00a085;
+        }
+        
+        button:disabled {
+            background: #b2bec3;
+            cursor: not-allowed;
+        }
+        
+        .results {
+            margin-top: 20px;
+        }
+        
+        .weather-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #74b9ff;
+        }
+        
+        .chart {
+            background: #2d3436;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #636e72;
+            font-style: italic;
+        }
+        
+        .error {
+            background: #ff7675;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .cache-info {
+            background: #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        
+        .city-examples {
+            text-align: center;
+            color: #636e72;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Прогноз погоды</h1>
+        
+        <div class="search-box">
+            <input type="text" id="cityInput" placeholder="Введите название города (Москва, Лондон, Токио)" />
+            <button onclick="getWeather()">Узнать погоду</button>
+        </div>
+        <div class="city-examples">
+            Примеры: Москва, Санкт-Петербург, Лондон, Берлин, Париж
+        </div>
+        
+        <div id="results" class="results">
+            <div class="loading" id="loading" style="display: none;">Загрузка данных о погоде...</div>
+            <div id="error" class="error" style="display: none;"></div>
+            <div id="weatherData"></div>
+            <div id="chartData"></div>
+        </div>
+    </div>
+
+    <script>
+        function getWeather() {
+            const city = document.getElementById('cityInput').value.trim();
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const weatherData = document.getElementById('weatherData');
+            const chartData = document.getElementById('chartData');
+            
+            if (!city) {
+                showError('Пожалуйста, введите название города');
+                return;
+            }
+            
+            // сбрасываем 
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            weatherData.innerHTML = '';
+            chartData.innerHTML = '';
+            
+            // получаем данные 
+            fetch(`/weather?city=${encodeURIComponent(city)}`)
+                .then(response => response.json())
+                .then(data => {
+                    loading.style.display = 'none';
+                    
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+                    
+                    displayWeatherData(data);
+                    return fetch(`/weather/chart?city=${encodeURIComponent(city)}`);
+                })
+                .then(response => response.text())
+                .then(chartText => {
+                    displayChart(chartText);
+                })
+                .catch(err => {
+                    loading.style.display = 'none';
+                    showError('Ошибка при получении данных о погоде: ' + err.message);
+                });
+        }
+        
+        function displayWeatherData(data) {
+            const weatherData = document.getElementById('weatherData');
+            
+            let cityDisplay = `${data.city}, ${data.country}`;
+            if (data.translatedCity) {
+                cityDisplay = `${data.originalCity} (${data.translatedCity}), ${data.country}`;
+            }
+            
+            let html = `
+                <div class="weather-card">
+                    <h2>${cityDisplay}</h2>
+                    <p><strong>Координаты:</strong> ${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}</p>
+                    <p><strong>Текущая температура:</strong> ${data.hourly[0].temperature}°C</p>
+                    <div class="cache-info">
+                        ${data.cached ? 'Данные из кэша (обновляются каждые 15 минут)' : 'Свежие данные из API'}
+                    </div>
+                </div>
+            `;
+            
+            weatherData.innerHTML = html;
+        }
+        
+        function displayChart(chartText) {
+            const chartData = document.getElementById('chartData');
+            
+            
+            try {
+                const parsed = JSON.parse(chartText);
+                if (parsed.error) {
+                    showError(parsed.error);
+                    return;
+                }
+            } catch (e) {
+                
+                chartData.innerHTML = `<div class="chart">${chartText}</div>`;
+            }
+        }
+        
+        function showError(message) {
+            const error = document.getElementById('error');
+            error.style.display = 'block';
+            error.textContent = message;
+        }
+        
+        // поиск по нажатию Enter
+        document.getElementById('cityInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                getWeather();
+            }
+        });
+    </script>
+</body>
+</html>
